@@ -57,32 +57,32 @@ def write_devicename(hostport):
     subprocess.call("adb connect " + str(hostport), shell=True)
     time.sleep(1)  # Introduce a delay after connecting to ensure the device is ready
 
-    cosmog_config_path = "cosmog.json"
-    old_mod_time = get_file_modification_time(cosmog_config_path)
+    atlas_config_path = "cosmog.json"
+    old_mod_time = get_file_modification_time(atlas_config_path)
 
     timeout_duration = 10  # Timeout after 10 seconds
 
     try:
-        subprocess.call(f"adb -s {hostport} pull /data/local/tmp/{cosmog_config_path}", shell=True,
+        subprocess.call(f"adb -s {hostport} pull /data/local/tmp/{atlas_config_path}", shell=True,
                         timeout=timeout_duration)
-        new_mod_time = get_file_modification_time(cosmog_config_path)
+        new_mod_time = get_file_modification_time(atlas_config_path)
 
         if new_mod_time > old_mod_time:
             try:
-                with open(cosmog_config_path) as jsonFile:
+                with open(atlas_config_path) as jsonFile:
                     jsonObject = json.load(jsonFile)
                 devicename = "=" + jsonObject['device_id']
                 with open(DEVICE_NAME_IP_FILE, "a") as x:
                     x.write(hostport + devicename + "\n")
                 return True
             except json.JSONDecodeError:
-                logging.error(f"Could not decode JSON from {cosmog_config_path} for {hostport}.")
+                logging.error(f"Could not decode JSON from {atlas_config_path} for {hostport}.")
         else:
-            logging.error(f"{cosmog_config_path} has not been updated for {hostport}.")
+            logging.error(f"{atlas_config_path} has not been updated for {hostport}.")
     except subprocess.TimeoutExpired:
-        logging.error(f"Timeout expired while pulling {cosmog_config_path} for {hostport}.")
+        logging.error(f"Timeout expired while pulling {atlas_config_path} for {hostport}.")
     except Exception as e:
-        logging.error(f"Failed to pull {cosmog_config_path} for {hostport}: {e}")
+        logging.error(f"Failed to pull {atlas_config_path} for {hostport}: {e}")
     return False
 
 def get_connected_devices():
@@ -253,6 +253,10 @@ def monitor_and_restart():
         devices = get_connected_devices()
         grace_period_devices = {}
         fix_offline_devices_on_startup(grace_period_devices)  # Fix offline devices on startup
+
+        # Initialize per-device offline counters
+        device_offline_counters = {device_id: 0 for device_id in devices.keys()}
+
         while True:
             parent_devices, worker_devices = check_devices()
             # Calculate total_workers and set thresholds dynamically
@@ -335,22 +339,26 @@ def monitor_and_restart():
                                        not device.get('isAlive', False)]
 
                     for device_id in offline_parents:
-                        offline_count[device_id] = offline_count.get(device_id, 0) + 1
-                    offline_count = {device_id: count for device_id, count in offline_count.items() if
-                                     device_id in offline_parents}
+                        if device_id in grace_period_devices:
+                            continue  # Skip devices in grace period
+                        # Increment the offline counter
+                        device_offline_counters[device_id] = device_offline_counters.get(device_id, 0) + 1
+                        logging.debug(f"Device {device_id} offline count: {device_offline_counters[device_id]}")
 
-                    if offline_parents:
-                        devices = get_connected_devices()
-                        for device_id in offline_parents:
-                            if device_id in grace_period_devices:
-                                continue  # Skip devices in grace period
-                            if offline_count.get(device_id, 0) >= 3:
-                                if device_id in devices:
-                                    logging.info(f"Attempting to restart Cosmog app on device {device_id}")
-                                    restart_cosmog_app(devices[device_id], device_id, grace_period_devices)
-                                    offline_count[device_id] = 0  # Reset count after attempt
-                                else:
-                                    logging.warning(f"Device {device_id} not found in {DEVICE_NAME_IP_FILE}")
+                        if device_offline_counters[device_id] >= 3:
+                            devices = get_connected_devices()  # Refresh the devices list
+                            if device_id in devices:
+                                device_ip = devices[device_id]
+                                logging.info(f"Attempting to restart Cosmog app on device {device_id}")
+                                restart_cosmog_app(device_ip, device_id, grace_period_devices)
+                                device_offline_counters[device_id] = 0  # Reset counter after attempt
+                            else:
+                                logging.warning(f"Device {device_id} not found in {DEVICE_NAME_IP_FILE}")
+
+                    # Reset offline counters for devices that are now online
+                    for device_id in list(device_offline_counters.keys()):
+                        if device_id not in offline_parents:
+                            device_offline_counters[device_id] = 0
 
                     # Update low_worker_count for devices with 0-1 workers
                     for device_id, device in parent_devices.items():
