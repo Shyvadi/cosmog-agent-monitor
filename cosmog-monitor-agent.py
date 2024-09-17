@@ -57,32 +57,32 @@ def write_devicename(hostport):
     subprocess.call("adb connect " + str(hostport), shell=True)
     time.sleep(1)  # Introduce a delay after connecting to ensure the device is ready
 
-    atlas_config_path = "cosmog.json"
-    old_mod_time = get_file_modification_time(atlas_config_path)
+    cosmog_config_path = "cosmog.json"
+    old_mod_time = get_file_modification_time(cosmog_config_path)
 
     timeout_duration = 10  # Timeout after 10 seconds
 
     try:
-        subprocess.call(f"adb -s {hostport} pull /data/local/tmp/{atlas_config_path}", shell=True,
+        subprocess.call(f"adb -s {hostport} pull /data/local/tmp/{cosmog_config_path}", shell=True,
                         timeout=timeout_duration)
-        new_mod_time = get_file_modification_time(atlas_config_path)
+        new_mod_time = get_file_modification_time(cosmog_config_path)
 
         if new_mod_time > old_mod_time:
             try:
-                with open(atlas_config_path) as jsonFile:
+                with open(cosmog_config_path) as jsonFile:
                     jsonObject = json.load(jsonFile)
                 devicename = "=" + jsonObject['device_id']
                 with open(DEVICE_NAME_IP_FILE, "a") as x:
                     x.write(hostport + devicename + "\n")
                 return True
             except json.JSONDecodeError:
-                logging.error(f"Could not decode JSON from {atlas_config_path} for {hostport}.")
+                logging.error(f"Could not decode JSON from {cosmog_config_path} for {hostport}.")
         else:
-            logging.error(f"{atlas_config_path} has not been updated for {hostport}.")
+            logging.error(f"{cosmog_config_path} has not been updated for {hostport}.")
     except subprocess.TimeoutExpired:
-        logging.error(f"Timeout expired while pulling {atlas_config_path} for {hostport}.")
+        logging.error(f"Timeout expired while pulling {cosmog_config_path} for {hostport}.")
     except Exception as e:
-        logging.error(f"Failed to pull {atlas_config_path} for {hostport}: {e}")
+        logging.error(f"Failed to pull {cosmog_config_path} for {hostport}: {e}")
     return False
 
 def get_connected_devices():
